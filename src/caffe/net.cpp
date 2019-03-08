@@ -976,6 +976,68 @@ const shared_ptr<Layer<Dtype> > Net<Dtype>::layer_by_name(
   return layer_ptr;
 }
 
+#include <stdio.h>
+#include <stdlib.h>
+
+template <typename Dtype>
+void Net<Dtype>::CopyTrainedLayersFrom(const std::string& caffe_trained_filename, const std::string& minidnn_model_filename)
+{
+	NetParameter param;
+	ReadNetParamsFromBinaryFileOrDie(caffe_trained_filename, &param);
+
+	FILE* fptr = nullptr;
+#if defined(WINDOWS)
+	fopen_s(&fptr, minidnn_model_filename.c_str(), "wb");
+#else
+	fptr = fopen(minidnn_model_filename.c_str(), "wb");
+#endif
+	int num_source_layers = param.layer_size();
+	if (fptr){
+		for (int i = 0; i < num_source_layers; ++i)
+		{
+			const LayerParameter& source_layer = param.layer(i);
+			const string& source_layer_name = source_layer.name();
+			int target_layer_id = 0;
+			while (target_layer_id != layer_names_.size() &&
+				layer_names_[target_layer_id] != source_layer_name) {
+				++target_layer_id;
+			}
+			if (target_layer_id == layer_names_.size()) {
+				LOG(INFO) << "Ignoring source layer " << source_layer_name;
+				continue;
+			}
+			LOG(INFO) << "Copying source layer " << source_layer_name;
+			vector<shared_ptr<Blob<Dtype> > >& target_blobs =
+				layers_[target_layer_id]->blobs();
+			CHECK_EQ(target_blobs.size(), source_layer.blobs_size())
+				<< "Incompatible number of blobs for layer " << source_layer_name;
+			for (int j = 0; j < target_blobs.size(); ++j) {
+				if (!target_blobs[j]->ShapeEquals(source_layer.blobs(j))) {
+					Blob<Dtype> source_blob;
+					const bool kReshape = true;
+					source_blob.FromProto(source_layer.blobs(j), kReshape);
+					LOG(FATAL) << "Cannot copy param " << j << " weights from layer '"
+						<< source_layer_name << "'; shape mismatch.  Source param shape is "
+						<< source_blob.shape_string() << "; target param shape is "
+						<< target_blobs[j]->shape_string() << ". "
+						<< "To learn this layer's parameters from scratch rather than "
+						<< "copying from a saved net, rename the layer.";
+				}
+				const bool kReshape = false;
+				target_blobs[j]->FromProto(source_layer.blobs(j), kReshape);
+				fwrite(target_blobs[j]->cpu_data(), sizeof(Dtype), target_blobs[j]->count(), fptr);
+			}
+		}
+		fclose(fptr);
+	}
+	else{
+		LOG(ERROR) << "fuck! create minidnn file is wrong" << std::endl;
+		exit(1);
+	}
+
+	return;
+}
+
 INSTANTIATE_CLASS(Net);
 
 }  // namespace caffe

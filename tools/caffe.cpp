@@ -55,6 +55,12 @@ DEFINE_string(sighup_effect, "snapshot",
              "Optional; action to take when a SIGHUP signal is received: "
              "snapshot, stop or none.");
 
+// minidnn
+// 命令行选项prototxt为caffe prototxt的绝对路径
+DEFINE_string(prototxt, "", "the path of caffe config prototxt");
+// 命令行选项minidnn_model为生成的minidnn存储格式的绝对路径
+DEFINE_string(minidnn_model, "", "the path of minidnn weights");
+
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();
 typedef std::map<caffe::string, BrewFunction> BrewMap;
@@ -416,6 +422,74 @@ int time() {
   return 0;
 }
 RegisterBrewFunction(time);
+
+int model_transfer()
+{
+#if 1
+	std::shared_ptr<Net<float> > net_;
+	net_.reset(new Net<float>(FLAGS_prototxt, caffe::TEST));
+	net_->CopyTrainedLayersFrom(FLAGS_model, FLAGS_minidnn_model);
+  return 0;
+#else
+
+	int channel = 1;
+	int height  = 112;
+	int width   = 112;
+
+	unsigned char *src1 = new unsigned char[channel * height * width];
+//	unsigned char *src2 = new unsigned char[channel * height * width];
+#if 1
+	FILE* fp;
+	fopen_s(&fp, "E:/miniDNN/RandomCheck/input_3x192x320.txt", "r");
+//	for (int i = 0; i < channel * height * width; ++i) fprintf_s(fp, "%d\n", (int)(src[i]));
+	int tmp;
+	for (int i = 0; i < channel * height * width; ++i){
+		fscanf_s(fp, "%d\n", &tmp);
+		src1[i] = (unsigned char)tmp;
+//		src2[i] = (unsigned char)tmp;
+	}
+	fclose(fp);
+#else
+	for (int i = 0; i < channel * height * width; ++i)
+		src1[i] = 127;
+#endif
+
+	auto input_layer = net_->input_blobs()[0];
+	float *input_data = input_layer->mutable_cpu_data();
+
+	for (int i = 0; i < channel * height * width; ++i){
+		input_data[i] = (static_cast<float>(src1[i]) - 128.f) / 128.f;
+	}
+
+	/*
+	auto input_layer1 = net_->input_blobs()[1];
+	float *input_data1 = input_layer1->mutable_cpu_data();
+
+	for (int i = 0; i < channel * height * width; ++i){
+		input_data1[i] = (static_cast<float>(src2[i]) - 128.f) / 128.f;
+	}
+	*/
+	clock_t start = clock();
+	auto results = net_->Forward();
+	clock_t end = clock();
+	cout << "x86 time: " << float(end - start) / 1000 << endl;
+
+	for (int i = 0; i < 15/*results[0]->count()*/; ++i) {
+		cout << i << ":  " << results[0]->cpu_data()[i] << endl;
+	}
+	
+//	FILE* file = nullptr;
+//	fopen_s(&file, "C:/Users/Administrator/Desktop/caffe_lane_results_0911.txt", "wb");
+//	fwrite(results[0]->cpu_data(), 4, results[0]->count(), file);
+//	fclose(file);
+
+	delete[] src1; src1 = nullptr;
+//	delete[] src2; src2 = nullptr;
+
+	return 0;
+#endif
+}
+RegisterBrewFunction(model_transfer);
 
 int main(int argc, char** argv) {
   // Print output to stderr (while still logging).
